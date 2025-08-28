@@ -1,4 +1,4 @@
-const byte interruptPin = 2;
+const byte interruptPin = 3;
 volatile bool sendFlag = false;
 volatile unsigned long lastInterruptTime = 0; // Tracks last interrupt time
 const unsigned long debounceDelay = 200;     // milliseconds
