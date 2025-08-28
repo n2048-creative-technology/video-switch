@@ -88,6 +88,7 @@ class ChannelSwitcherApp:
     def trigger(self):
         self.PRG = self.CUE
         if switcher.connected:
+            time.sleep(0.05)
             switcher.execCutME(0);
             switcher.setPreviewInputVideoSource(0, self.CUE)
             switcher.setProgramInputVideoSource(0, self.PRG) # not needed
