@@ -1,20 +1,37 @@
-# PyInstaller spec for Linux build of the Karel ATEM controller
-
 import os
+import sys
+import sysconfig
+import glob
 from PyInstaller.utils.hooks import collect_submodules
 
-# Spec is executed from its own directory; use CWD as project root.
 project_root = os.path.abspath(os.getcwd())
 pathex = [project_root]
 
 hidden = ['serial.tools.list_ports'] + collect_submodules('PyATEMMax')
 
+def _find_python_shared():
+    ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    libdir = sysconfig.get_config_var('LIBDIR') or ''
+    ldlib = sysconfig.get_config_var('LDLIBRARY') or ''
+    candidates = []
+    if libdir and ldlib:
+        candidates.append(os.path.join(libdir, ldlib))
+    candidates.extend(sorted(glob.glob(f"/lib/*/libpython{ver}.so*")))
+    candidates.extend(sorted(glob.glob(f"/usr/lib/*/libpython{ver}.so*")))
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+_py_shared = _find_python_shared()
+extra_bins = []  # Rely on PyInstaller's own python shared library handling to avoid dupes
+
 block_cipher = None
 
 a = Analysis(
-    ['run.py'],
+    ['run_mpv.py'],
     pathex=pathex,
-    binaries=[],
+    binaries=extra_bins,
     datas=[],
     hiddenimports=hidden,
     hookspath=[],
@@ -36,14 +53,14 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='karel-switcher',
+    name='karel-switcher-mpv',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # windowed app (Tkinter)
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
 )

@@ -29,3 +29,19 @@ while True:
     time.sleep(0.2)
 
     
+"""
+Minimal ATEM program switch controller (prototype)
+
+Description
+- Connects to an ATEM and updates Program when CUE changes.
+- Intended for quick tests; requires pynput's Keyboard Listener (not imported here).
+
+Usage
+- Ensure PyATEMMax is available.
+- Optionally add: from pynput.keyboard import Listener
+- Edit ATEM_IP and INPUT_NUMBER as needed.
+
+Notes
+- This file is a lightweight example and may require fixes for production use
+  (e.g., importing Listener and updating CUE on key events).
+"""

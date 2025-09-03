@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Karel Switcher UI + MPV trigger
@@ -24,6 +25,9 @@ import sys
 import json
 import platform
 import socket
+import subprocess
+import shutil
+import shlex
 import serial
 from serial.tools import list_ports
 import threading
@@ -103,6 +107,8 @@ except Exception:
 
 # MPV integration
 MPV_SOCKET = os.getenv("MPV_SOCKET", _CONF.get("MPV_SOCKET", "/tmp/mpvsocket"))
+MPV_PATH = os.getenv("MPV_PATH", _CONF.get("MPV_PATH", "mpv"))
+MPV_ARGS = os.getenv("MPV_ARGS", _CONF.get("MPV_ARGS", ""))
 VIDEO_FILE = os.getenv("VIDEO_FILE", _CONF.get("VIDEO_FILE", ""))
 
 
@@ -146,6 +152,44 @@ def mpv_load_and_pause(path):
 
 def mpv_play():
     mpv_send({"command": ["set_property", "pause", False]})
+
+
+def _mpv_ipc_ready():
+    try:
+        resp = mpv_send({"command": ["get_property", "pause"]})
+        return isinstance(resp, dict) and resp.get('error') == 'success'
+    except Exception:
+        return False
+
+
+_mpv_proc = None
+
+
+def launch_mpv_if_needed():
+    global _mpv_proc
+    if _mpv_ipc_ready():
+        return True
+    # Find mpv binary
+    mpv_bin = MPV_PATH if os.path.isabs(MPV_PATH) or os.path.sep in MPV_PATH else (shutil.which(MPV_PATH) or MPV_PATH)
+    if not shutil.which(mpv_bin) and not os.path.isabs(mpv_bin):
+        print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
+        return False
+    # Build command
+    cmd = [mpv_bin, f"--input-ipc-server={MPV_SOCKET}", "--idle=yes", "--force-window=yes"]
+    extra = shlex.split(MPV_ARGS) if MPV_ARGS else []
+    cmd.extend(extra)
+    try:
+        _mpv_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"Failed to start mpv: {e}")
+        return False
+    # Wait up to ~5s for IPC to be ready
+    for _ in range(50):
+        if _mpv_ipc_ready():
+            return True
+        time.sleep(0.1)
+    print("mpv IPC not ready after launch.")
+    return False
 
 
 # PyATEMMax connection
@@ -251,7 +295,8 @@ class ChannelSwitcherApp:
         self.serial_backoff = 1.0
         self.serial_backoff_max = 10.0
 
-        # Preload mpv video (if configured)
+        # Ensure mpv is running and IPC is ready; then preload video (if configured)
+        launch_mpv_if_needed()
         self._mpv_loaded = False
         if VIDEO_FILE:
             if os.path.isfile(VIDEO_FILE):
@@ -437,4 +482,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

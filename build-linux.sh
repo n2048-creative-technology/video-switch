@@ -33,15 +33,24 @@ python -m pip install --upgrade pip wheel setuptools
 # Ensure required tools/libraries for build and runtime are present in the venv
 python -m pip install pyinstaller pyserial
 
-# Build using the Linux spec which includes vendored PyATEMMax
+# Build onefile binaries
 pyinstaller -y ./karel-linux.spec
+# MPV-integrated variant
+pyinstaller -y ./karel-linux-mpv.spec
 
 echo
 echo "Build complete. Artifacts:"
 echo "  - dist/karel-switcher (single-file executable)"
+echo "  - dist/karel-switcher-mpv (single-file executable with mpv integration)"
 echo
 echo "Run with logs visible:"
 echo "  ATEM_IP=... ARDUINO_PORT=... ./dist/karel-switcher"
+echo "  (or create a .env in CWD or next to the executable)"
+echo
+echo "Run mpv-integrated variant:"
+echo "  Ensure mpv is running with IPC: mpv --input-ipc-server=/tmp/mpvsocket --idle=yes --force-window=yes"
+echo "  Define VIDEO_FILE in .env (e.g., VIDEO_FILE=./test1.mp4)"
+echo "  ./dist/karel-switcher-mpv"
 echo "  (or create a .env in CWD or next to the executable)"
 echo
 echo "Notes:"

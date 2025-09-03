@@ -86,3 +86,25 @@ def main():
 
 if __name__ == "__main__":
     main()
+"""
+mpv IPC controller: toggle between live input and video file
+
+Description
+- Talks to an mpv instance via its UNIX socket (MPV_SOCKET) and applies
+  filter graphs to switch/blend between two inputs.
+
+Requirements
+- mpv started with: mpv --input-ipc-server=/tmp/mpvsocket --idle=yes \\
+    --lavfi-complex='[vid1]scale=1280:720[main];[vid0]scale=1280:720[live];[main][live]blend=all_expr=A[out]'
+
+Controls
+- 1: show LIVE input (blend B)
+- 2: show VIDEO file (blend A)
+- SPACE: play/pause video file
+- 0: restart video file
+- q: quit
+
+Usage
+- python3 karel/switch_video.py
+  Ensure MPV_SOCKET points to the mpv IPC socket.
+"""

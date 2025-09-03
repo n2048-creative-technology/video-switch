@@ -38,3 +38,18 @@ if __name__ == "__main__":
         print(f"Current active program input: {current_input}")
     else:
         print("Failed to retrieve program input")
+"""
+ATEM UDP status probe
+
+Description
+- Listens for a single UDP status packet from an ATEM and extracts the
+  current Program input using a simple, example parser.
+
+Usage
+- python3 karel/getch.py
+- Adjust ATEM_IP/ATEM_PORT as needed.
+
+Caveats
+- Packet layout may differ across models/firmware; the parse_atem_packet()
+  offset is illustrative and may need adjustment.
+"""

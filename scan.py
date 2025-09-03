@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 # coding: utf-8
-"""scan.py - PyATEMMax demo script.
-   Part of the PyATEMMax library."""
+"""
+ATEM network scanner (PyATEMMax demo)
+
+Description
+- Scans an IPv4 /24 range for reachable ATEM switchers using PyATEMMax ping.
+
+Usage
+- python3 karel/scan.py 192.168.10
+  (scans 192.168.10.1 .. 192.168.10.254)
+
+Notes
+- Requires network access; results depend on firewall and switcher settings.
+"""
 
 import argparse
 import time
