@@ -20,6 +20,8 @@ Configuration
     - `ATEM_IP=192.168.10.240`
     - `ARDUINO_PORT=/dev/ttyUSB0`
     - `BAUD_RATE=9600`
+    - `VIDEO_FILE=/path/to/video.mp4` (for mpv integration)
+    - `MPV_SOCKET=/tmp/mpvsocket` (mpv IPC path)
 - Environment variables (highest precedence):
   - `ATEM_IP` — e.g., `192.168.10.240`
   - `ARDUINO_PORT` — e.g., `/dev/tty.usbmodemXXXX` (macOS) or `/dev/ttyUSB0` (Linux)
@@ -46,6 +48,16 @@ Included Scripts
 - `getch.py` — Minimal UDP probe to read current Program input (example parser).
 - `switch_video.py` — Control mpv via IPC to toggle/blend sources (advanced demo).
 - `atem-controll.py` — Minimal prototype program switcher (example/stub).
+- `run_mpv.py` — Same UI as `run.py` with mpv control: loads `VIDEO_FILE` into mpv via `MPV_SOCKET`, pauses at start; press `P` to arm playback on next CUT.
+
+MPV Integration
+- Start mpv with IPC enabled (example):
+  - `mpv --input-ipc-server=/tmp/mpvsocket --idle=yes --force-window=yes`
+- Set in `.env` (or export variables):
+  - `VIDEO_FILE=/absolute/or/relative/path/to/video.mp4`
+  - `MPV_SOCKET=/tmp/mpvsocket`
+- Run from source:
+  - `make run-mpv` (or `python3 run_mpv.py`)
 
 Troubleshooting
 - Serial permissions (Linux): add your user to `dialout` or adjust udev.
