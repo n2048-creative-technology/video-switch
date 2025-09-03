@@ -1,6 +1,6 @@
 {
   "ATEM_IP": "192.168.10.240",
   "ARDUINO_PORT": "", 
-  "BAUD_RATE": 9600
+  "BAUD_RATE": 9600,
+  "MPV_PLAY_DELAY_MS": 0
 }
-
