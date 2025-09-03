@@ -51,13 +51,19 @@ Included Scripts
 - `run_mpv.py` — Same UI as `run.py` with mpv control: loads `VIDEO_FILE` into mpv via `MPV_SOCKET`, pauses at start; press `P` to arm playback on next CUT.
 
 MPV Integration
-- Start mpv with IPC enabled (example):
-  - `mpv --input-ipc-server=/tmp/mpvsocket --idle=yes --force-window=yes`
+- Auto‑launch + fullscreen: `run_mpv.py` auto‑starts mpv if its IPC socket isn’t available, always in fullscreen. On Linux, it prefers a secondary display if detected via `xrandr` (uses `--fs-screen=<monitor>`); otherwise it uses the primary display.
+- Manual start (optional):
+  - `mpv --input-ipc-server=/tmp/mpvsocket --idle=yes --force-window=yes --fs`
 - Set in `.env` (or export variables):
   - `VIDEO_FILE=/absolute/or/relative/path/to/video.mp4`
   - `MPV_SOCKET=/tmp/mpvsocket`
+  - `MPV_PATH=mpv` (path to mpv binary, if not on PATH)
+  - `MPV_ARGS="--fs-screen=HDMI-1"` (extra flags appended after defaults; use to force a specific screen)
 - Run from source:
   - `make run-mpv` (or `python3 run_mpv.py`)
+- Notes:
+  - `MPV_ARGS` are appended after the defaults (`--fs` and optional `--fs-screen=<auto>`), so your values take precedence on duplicates.
+  - Secondary‑display detection uses `xrandr --listmonitors` on Linux; if `xrandr` is unavailable or only one display is connected, fullscreen opens on the primary.
 
 Troubleshooting
 - Serial permissions (Linux): add your user to `dialout` or adjust udev.
