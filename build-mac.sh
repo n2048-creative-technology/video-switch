@@ -23,14 +23,16 @@ python -m pip install --upgrade pip wheel setuptools
 # Dependencies: PyInstaller (packaging) and pyserial (runtime)
 python -m pip install pyinstaller pyserial
 
-# Build GUI app bundle and one-file mpv variant
+# Build GUI app bundle and one-file variants
 pyinstaller -y ./karel-mac.spec
+pyinstaller -y ./karel-mac-onefile.spec
 pyinstaller -y ./karel-mac-mpv.spec
 
 echo
 echo "Build complete. Artifacts:"
 echo "  - dist/KarelSwitcher.app (double-clickable GUI app)"
-echo "  - dist/karel-switcher-mpv (one-file CLI binary with mpv integration)"
+echo "  - dist/karel-switcher (one-file GUI binary)"
+echo "  - dist/karel-switcher-mpv (one-file GUI binary with mpv integration)"
 echo
 echo "Notes:"
 echo "- On first run, macOS Gatekeeper may block the app; use Right-click -> Open."

@@ -69,9 +69,10 @@ jobs:
           mkdir -p release
           cd dist
           ditto -c -k --sequesterRsrc --keepParent KarelSwitcher.app ../release/KarelSwitcher-macOS.app.zip
+          tar -czf ../release/karel-switcher-macOS-$(uname -m).tar.gz karel-switcher
           tar -czf ../release/karel-switcher-mpv-macOS-$(uname -m).tar.gz karel-switcher-mpv
           cd ../release
-          shasum -a 256 KarelSwitcher-macOS.app.zip karel-switcher-mpv-macOS-*.tar.gz > SHA256SUMS
+          shasum -a 256 KarelSwitcher-macOS.app.zip karel-switcher-macOS-*.tar.gz karel-switcher-mpv-macOS-*.tar.gz > SHA256SUMS
 
       - name: Upload artifacts (macOS)
         uses: actions/upload-artifact@v4
@@ -80,6 +81,7 @@ jobs:
           path: |
             release/KarelSwitcher-macOS.app.zip
             release/SHA256SUMS
+            release/karel-switcher-macOS-*.tar.gz
             release/karel-switcher-mpv-macOS-*.tar.gz
 
   release:
@@ -113,6 +115,7 @@ jobs:
             release/linux/config.sample.json
             release/macos/KarelSwitcher-macOS.app.zip
             release/macos/SHA256SUMS
+            release/macos/karel-switcher-macOS-*.tar.gz
             release/macos/karel-switcher-mpv-macOS-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
