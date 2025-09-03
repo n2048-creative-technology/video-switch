@@ -110,6 +110,10 @@ MPV_SOCKET = os.getenv("MPV_SOCKET", _CONF.get("MPV_SOCKET", "/tmp/mpvsocket"))
 MPV_PATH = os.getenv("MPV_PATH", _CONF.get("MPV_PATH", "mpv"))
 MPV_ARGS = os.getenv("MPV_ARGS", _CONF.get("MPV_ARGS", ""))
 VIDEO_FILE = os.getenv("VIDEO_FILE", _CONF.get("VIDEO_FILE", ""))
+try:
+    MPV_PLAY_DELAY_MS = int(os.getenv("MPV_PLAY_DELAY_MS", str(_CONF.get("MPV_PLAY_DELAY_MS", "0"))))
+except Exception:
+    MPV_PLAY_DELAY_MS = 0
 
 
 def mpv_send(payload):
@@ -392,9 +396,17 @@ class ChannelSwitcherApp:
             print(f"ATEM command error: {e}")
             self.atem_backoff = 1.0
 
-        # If requested, start mpv playback on this trigger
+        # If requested, start mpv playback on this trigger (with optional delay)
         if self.play_on_next_trigger:
-            mpv_play()
+            delay = max(0, int(MPV_PLAY_DELAY_MS))
+            if delay > 0:
+                try:
+                    self.root.after(delay, mpv_play)
+                except Exception:
+                    # Fallback to immediate play if scheduling fails
+                    mpv_play()
+            else:
+                mpv_play()
             self.play_on_next_trigger = False
 
         self.update_display()
