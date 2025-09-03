@@ -59,7 +59,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build app bundle
+      - name: Build app bundle and onefile
         run: |
           bash build-mac.sh
 
@@ -69,8 +69,9 @@ jobs:
           mkdir -p release
           cd dist
           ditto -c -k --sequesterRsrc --keepParent KarelSwitcher.app ../release/KarelSwitcher-macOS.app.zip
+          tar -czf ../release/karel-switcher-mpv-macOS-$(uname -m).tar.gz karel-switcher-mpv
           cd ../release
-          shasum -a 256 KarelSwitcher-macOS.app.zip > SHA256SUMS
+          shasum -a 256 KarelSwitcher-macOS.app.zip karel-switcher-mpv-macOS-*.tar.gz > SHA256SUMS
 
       - name: Upload artifacts (macOS)
         uses: actions/upload-artifact@v4
@@ -79,6 +80,7 @@ jobs:
           path: |
             release/KarelSwitcher-macOS.app.zip
             release/SHA256SUMS
+            release/karel-switcher-mpv-macOS-*.tar.gz
 
   release:
     name: Create GitHub Release
@@ -111,5 +113,6 @@ jobs:
             release/linux/config.sample.json
             release/macos/KarelSwitcher-macOS.app.zip
             release/macos/SHA256SUMS
+            release/macos/karel-switcher-mpv-macOS-*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
