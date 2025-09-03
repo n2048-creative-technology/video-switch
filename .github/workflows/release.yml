@@ -34,7 +34,7 @@ jobs:
           tar -czf release/karel-switcher-mpv-linux-x86_64.tar.gz -C release karel-switcher-mpv
           rm -f release/karel-switcher-mpv
           cp README.md config.sample.json release/
-          (cd release && sha256sum *.tar.gz > SHA256SUMS)
+          (cd release && sha256sum *.tar.gz > SHA256SUMS-linux.txt)
 
       - name: Upload artifacts (Linux)
         uses: actions/upload-artifact@v4
@@ -43,7 +43,7 @@ jobs:
           path: |
             release/karel-switcher-linux-x86_64.tar.gz
             release/karel-switcher-mpv-linux-x86_64.tar.gz
-            release/SHA256SUMS
+            release/SHA256SUMS-linux.txt
             release/README.md
             release/config.sample.json
 
@@ -72,7 +72,7 @@ jobs:
           tar -czf ../release/karel-switcher-macOS-$(uname -m).tar.gz karel-switcher
           tar -czf ../release/karel-switcher-mpv-macOS-$(uname -m).tar.gz karel-switcher-mpv
           cd ../release
-          shasum -a 256 KarelSwitcher-macOS.app.zip karel-switcher-macOS-*.tar.gz karel-switcher-mpv-macOS-*.tar.gz > SHA256SUMS
+          shasum -a 256 KarelSwitcher-macOS.app.zip karel-switcher-macOS-*.tar.gz karel-switcher-mpv-macOS-*.tar.gz > SHA256SUMS-macOS.txt
 
       - name: Upload artifacts (macOS)
         uses: actions/upload-artifact@v4
@@ -80,7 +80,7 @@ jobs:
           name: macos-artifacts
           path: |
             release/KarelSwitcher-macOS.app.zip
-            release/SHA256SUMS
+            release/SHA256SUMS-macOS.txt
             release/karel-switcher-macOS-*.tar.gz
             release/karel-switcher-mpv-macOS-*.tar.gz
 
@@ -110,11 +110,11 @@ jobs:
           files: |
             release/linux/karel-switcher-linux-x86_64.tar.gz
             release/linux/karel-switcher-mpv-linux-x86_64.tar.gz
-            release/linux/SHA256SUMS
+            release/linux/SHA256SUMS-linux.txt
             release/linux/README.md
             release/linux/config.sample.json
             release/macos/KarelSwitcher-macOS.app.zip
-            release/macos/SHA256SUMS
+            release/macos/SHA256SUMS-macOS.txt
             release/macos/karel-switcher-macOS-*.tar.gz
             release/macos/karel-switcher-mpv-macOS-*.tar.gz
         env:
