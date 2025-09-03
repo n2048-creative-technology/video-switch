@@ -16,6 +16,15 @@ if [ ! -f "$VIDEO_FILE" ]; then
 fi
 
 # Start mpv with proper filtergraph
+# Determine fullscreen arguments (always fullscreen; prefer external monitor if present)
+FS_ARGS=("--fs")
+if command -v xrandr >/dev/null 2>&1; then
+    SEC_MON=$(xrandr --listmonitors 2>/dev/null | awk '/^[[:space:]]*[0-9]+:/{tok=$2; name=tok; gsub(/^\+\**/,"",name); if (index(tok, "*") == 0) {print name; exit}}')
+    if [ -n "$SEC_MON" ]; then
+        FS_ARGS+=("--fs-screen=$SEC_MON")
+    fi
+fi
+
 echo "Starting mpv..."
 
 mpv --input-ipc-server="$MPV_SOCKET" \
@@ -23,7 +32,7 @@ mpv --input-ipc-server="$MPV_SOCKET" \
     --external-files="$LIVE_INPUT" \
     --video-output=out \
     "$VIDEO_FILE" \
-    --force-window=yes --idle=yes --no-audio --pause > "$LOGFILE" 2>&1 &
+    --force-window=yes --idle=yes --no-audio --pause "${FS_ARGS[@]}" > "$LOGFILE" 2>&1 &
 
 MPV_PID=$!
 

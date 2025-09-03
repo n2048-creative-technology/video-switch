@@ -174,8 +174,41 @@ def launch_mpv_if_needed():
     if not shutil.which(mpv_bin) and not os.path.isabs(mpv_bin):
         print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
         return False
+    # Detect a secondary monitor for fullscreen if possible (X11).
+    def _detect_secondary_monitor_name():
+        try:
+            if platform.system() != "Linux":
+                return None
+            if not shutil.which("xrandr"):
+                return None
+            out = subprocess.check_output(["xrandr", "--listmonitors"], text=True, stderr=subprocess.DEVNULL)
+            primary = None
+            names = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line or line.startswith("Monitors:"):
+                    continue
+                # Example line: "0: +*eDP-1 1920/344x1080/194+0+0  eDP-1"
+                tok = (line.split()[1] if len(line.split()) > 1 else "")
+                name = tok.lstrip("+*")
+                if "*" in tok:
+                    primary = name
+                names.append(name)
+            if len(names) >= 2:
+                # Prefer any non-primary output
+                for n in names:
+                    if n != primary:
+                        return n
+                return names[1]
+        except Exception:
+            return None
+        return None
+
     # Build command
-    cmd = [mpv_bin, f"--input-ipc-server={MPV_SOCKET}", "--idle=yes", "--force-window=yes"]
+    cmd = [mpv_bin, f"--input-ipc-server={MPV_SOCKET}", "--idle=yes", "--force-window=yes", "--fs"]
+    sec = _detect_secondary_monitor_name()
+    if sec:
+        cmd.append(f"--fs-screen={sec}")
     extra = shlex.split(MPV_ARGS) if MPV_ARGS else []
     cmd.extend(extra)
     try:
