@@ -33,7 +33,7 @@ jobs:
           cp dist/karel-switcher-mpv release/
           tar -czf release/karel-switcher-mpv-linux-x86_64.tar.gz -C release karel-switcher-mpv
           rm -f release/karel-switcher-mpv
-          cp README.md config.sample.json release/
+          cp README.md config.sample.json .env.template release/
           (cd release && sha256sum *.tar.gz > SHA256SUMS-linux.txt)
 
       - name: Upload artifacts (Linux)
@@ -46,6 +46,7 @@ jobs:
             release/SHA256SUMS-linux.txt
             release/README.md
             release/config.sample.json
+            release/.env.template
 
   build-macos:
     name: Build (macOS)
@@ -113,6 +114,7 @@ jobs:
             release/linux/SHA256SUMS-linux.txt
             release/linux/README.md
             release/linux/config.sample.json
+            release/linux/.env.template
             release/macos/KarelSwitcher-macOS.app.zip
             release/macos/SHA256SUMS-macOS.txt
             release/macos/karel-switcher-macOS-*.tar.gz
