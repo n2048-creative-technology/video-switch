@@ -19,6 +19,7 @@ Notes:
 """
 
 import tkinter as tk
+import tkinter.simpledialog as simpledialog
 import time
 import os
 import sys
@@ -96,6 +97,87 @@ def load_config():
     return {}
 
 
+def _config_write_path():
+    """Preferred path to persist config changes."""
+    env_path = os.getenv("KAREL_CONFIG")
+    if env_path:
+        return env_path
+    home = os.path.expanduser("~")
+    if platform.system() == "Darwin":
+        return os.path.join(home, "Library", "Application Support", "KarelSwitcher", "config.json")
+    else:
+        return os.path.join(home, ".config", "karel", "config.json")
+
+
+def _ensure_parent_dir(path: str):
+    try:
+        parent = os.path.dirname(path) or "."
+        os.makedirs(parent, exist_ok=True)
+    except Exception as e:
+        print(f"Ensure dir failed for {path}: {e}")
+
+
+def save_config_value(key: str, value):
+    """Persist a single key/value into config.json; merges existing content."""
+    path = _config_write_path()
+    _ensure_parent_dir(path)
+    data = {}
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+    except Exception:
+        data = {}
+    data[str(key)] = value
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+    except Exception as e:
+        print(f"Failed to write {path}: {e}")
+
+
+def _env_candidate_paths():
+    """Return candidate .env paths in load order (cwd, script dir)."""
+    paths = [os.path.join(os.getcwd(), ".env")]
+    try:
+        if getattr(sys, 'frozen', False):
+            exec_dir = os.path.dirname(sys.executable)
+        else:
+            exec_dir = os.path.dirname(os.path.abspath(__file__))
+        paths.append(os.path.join(exec_dir, ".env"))
+    except Exception:
+        pass
+    return paths
+
+
+def save_env_value(key: str, value: str) -> bool:
+    """Best-effort update or append KEY=VALUE to a .env file. Returns True if written."""
+    targets = [p for p in _env_candidate_paths() if os.path.isfile(p)]
+    target = targets[0] if targets else os.path.join(os.getcwd(), ".env")
+    try:
+        lines = []
+        if os.path.isfile(target):
+            with open(target, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        key_prefix = f"{key}="
+        updated = False
+        new_lines = []
+        for line in lines:
+            if line.strip().startswith(key_prefix):
+                new_lines.append(f"{key}={value}")
+                updated = True
+            else:
+                new_lines.append(line)
+        if not updated:
+            new_lines.append(f"{key}={value}")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("\n".join(new_lines) + "\n")
+        return True
+    except Exception as e:
+        print(f"Failed to write .env: {e}")
+    return False
+
+
 _CONF = load_config()
 
 ATEM_IP = os.getenv("ATEM_IP", _CONF.get("ATEM_IP", "192.168.10.240"))
@@ -104,6 +186,15 @@ try:
     BAUD_RATE = int(os.getenv("BAUD_RATE", _CONF.get("BAUD_RATE", 9600)))
 except Exception:
     BAUD_RATE = 9600
+
+# Arduino trigger delay (ms) before firing CUT after a serial '1' is read
+try:
+    ARDUINO_TRIGGER_DELAY_MS = int(os.getenv(
+        "ARDUINO_TRIGGER_DELAY_MS",
+        str(_CONF.get("ARDUINO_TRIGGER_DELAY_MS", "100"))
+    ))
+except Exception:
+    ARDUINO_TRIGGER_DELAY_MS = 100
 
 # MPV integration
 MPV_SOCKET = os.getenv("MPV_SOCKET", _CONF.get("MPV_SOCKET", "/tmp/mpvsocket"))
@@ -114,6 +205,74 @@ try:
     MPV_PLAY_DELAY_MS = int(os.getenv("MPV_PLAY_DELAY_MS", str(_CONF.get("MPV_PLAY_DELAY_MS", "0"))))
 except Exception:
     MPV_PLAY_DELAY_MS = 0
+
+
+# Extra MPV (preview) integration
+def _as_bool(x: str) -> bool:
+    return str(x).strip().lower() in ("1", "true", "yes", "on")
+
+MPV_PREVIEW_ENABLE = _as_bool(os.getenv("MPV_PREVIEW_ENABLE", str(_CONF.get("MPV_PREVIEW_ENABLE", "1"))))
+MPV_PREVIEW_SOCKET = os.getenv(
+    "MPV_PREVIEW_SOCKET",
+    _CONF.get("MPV_PREVIEW_SOCKET", (MPV_SOCKET + ".prev") if MPV_SOCKET else "/tmp/mpvsocket_prev")
+)
+# Default: small, borderless, on top, audio muted
+MPV_PREVIEW_ARGS = os.getenv(
+    "MPV_PREVIEW_ARGS",
+    _CONF.get("MPV_PREVIEW_ARGS", "--geometry=25%x25%+20+20 --no-border --ontop --mute=yes --no-audio --keep-open=always")
+)
+
+def _as_bool(x: str) -> bool:
+    return str(x).strip().lower() in ("1", "true", "yes", "on")
+
+MPV_SYNC_ENABLE = _as_bool(os.getenv("MPV_SYNC_ENABLE", str(_CONF.get("MPV_SYNC_ENABLE", "1"))))
+MPV_SYNC_INTERVAL_MS = int(os.getenv("MPV_SYNC_INTERVAL_MS", str(_CONF.get("MPV_SYNC_INTERVAL_MS", "150"))))  # ~6Hz
+MPV_SYNC_DRIFT_SEC = float(os.getenv("MPV_SYNC_DRIFT_SEC", str(_CONF.get("MPV_SYNC_DRIFT_SEC", "0.08"))))
+
+def mpv_send_to(sock_path, payload):
+    """Send JSON IPC payload to a specific mpv UNIX socket."""
+    if not sock_path:
+        return None
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(0.2)
+        client.connect(sock_path)
+        client.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+        try:
+            data = client.recv(4096)
+            if data:
+                return json.loads(data.decode("utf-8"))
+        except Exception:
+            pass
+    except Exception as e:
+        # keep quiet-ish; caller decides what to log
+        # print(f"mpv IPC({sock_path}) error: {e}")
+        pass
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+    return None
+
+def mpv_get(sock_path, prop, default=None):
+    try:
+        resp = mpv_send_to(sock_path, {"command": ["get_property", prop]})
+        if isinstance(resp, dict) and resp.get("error") == "success":
+            return resp.get("data")
+    except Exception:
+        pass
+    return default
+
+def mpv_set(sock_path, prop, value):
+    mpv_send_to(sock_path, {"command": ["set_property", prop, value]})
+
+def _mpv_ipc_ready_socket(sock_path):
+    try:
+        resp = mpv_send_to(sock_path, {"command": ["get_property", "pause"]})
+        return isinstance(resp, dict) and resp.get("error") == "success"
+    except Exception:
+        return False
 
 
 def mpv_send(payload):
@@ -146,16 +305,23 @@ def mpv_send(payload):
 def mpv_load_and_pause(path):
     if not path:
         return False
-    # Load file, pause and seek to start
+    # Load on program
     mpv_send({"command": ["loadfile", path, "replace"]})
     time.sleep(0.05)
     mpv_send({"command": ["set_property", "pause", True]})
     mpv_send({"command": ["set_property", "time-pos", 0]})
+    # Load on preview too (best-effort)
+    if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+        mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["loadfile", path, "replace"]})
+        time.sleep(0.02)
+        mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["set_property", "pause", True]})
+        mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["set_property", "time-pos", 0]})
     return True
-
 
 def mpv_play():
     mpv_send({"command": ["set_property", "pause", False]})
+    if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+        mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["set_property", "pause", False]})
 
 
 def _mpv_ipc_ready():
@@ -169,42 +335,22 @@ def _mpv_ipc_ready():
 _mpv_proc = None
 
 def launch_mpv_if_needed():
-    """Ensure mpv is running with IPC. Start it and wait briefly if needed."""
+    """
+    Ensure TWO mpv instances are running with IPC:
+      - Program (fullscreen) on MPV_SOCKET
+      - Preview (small, muted) on MPV_PREVIEW_SOCKET  (if MPV_PREVIEW_ENABLE)
+
+    Returns True if the program instance is ready (preview is best-effort).
+    """
     global _mpv_proc
 
-    # Already up?
-    if _mpv_ipc_ready():
-        return True
+    def _ensure_dir_for(sock_path):
+        try:
+            d = os.path.dirname(sock_path) or "."
+            os.makedirs(d, exist_ok=True)
+        except Exception as e:
+            print(f"Cannot ensure socket dir for {sock_path}: {e}")
 
-    # Make sure socket dir exists (e.g., /tmp)
-    try:
-        sock_dir = os.path.dirname(MPV_SOCKET) or "."
-        os.makedirs(sock_dir, exist_ok=True)
-    except Exception as e:
-        print(f"Cannot ensure socket dir for {MPV_SOCKET}: {e}")
-        return False
-
-    # Resolve mpv binary
-    mpv_bin = MPV_PATH
-    if not (os.path.isabs(mpv_bin) or os.path.sep in mpv_bin):
-        found = shutil.which(mpv_bin)
-        if not found:
-            print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
-            return False
-        mpv_bin = found
-
-    # Build base command + log
-    log_path = "/tmp/karel_mpv.log"
-    base_cmd = [
-        mpv_bin,
-        f"--input-ipc-server={MPV_SOCKET}",
-        "--idle=yes",
-        "--force-window=immediate",
-        f"--log-file={log_path}",
-    ]
-    extra = shlex.split(MPV_ARGS) if MPV_ARGS else []
-
-    # Try to derive a secondary screen; this sometimes breaks on Wayland
     def _detect_secondary_monitor_name():
         try:
             if platform.system() != "Linux" or not shutil.which("xrandr"):
@@ -229,42 +375,96 @@ def launch_mpv_if_needed():
             return None
         return None
 
-    sec = _detect_secondary_monitor_name()
-    # First attempt: with fullscreen and (if known) fs-screen
-    attempt_cmds = []
-    if sec:
-        attempt_cmds.append(base_cmd + ["--fs", f"--fs-screen={sec}"] + extra)
-    # Fallbacks: plain fullscreen, then windowed
-    attempt_cmds.append(base_cmd + ["--fs"] + extra)
-    attempt_cmds.append(base_cmd + extra)
+    # Resolve mpv binary
+    mpv_bin = MPV_PATH if (os.path.isabs(MPV_PATH) or os.path.sep in MPV_PATH) else (shutil.which(MPV_PATH) or MPV_PATH)
+    if not (os.path.isabs(mpv_bin) or shutil.which(mpv_bin)):
+        print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
+        return False
 
-    # Try each variant until IPC comes up
-    for cmd in attempt_cmds:
-        try:
-            _mpv_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            print(f"Failed to start mpv ({' '.join(cmd[:2])} ...): {e}")
+    # If program socket already responds, we’re good on the main instance.
+    if _mpv_ipc_ready_socket(MPV_SOCKET):
+        prog_ready = True
+    else:
+        # Program (fullscreen) instance
+        _ensure_dir_for(MPV_SOCKET)
+        log_prog = "/tmp/karel_mpv_prog.log"
+        base_prog = [
+            mpv_bin,
+            f"--input-ipc-server={MPV_SOCKET}",
+            "--idle=yes",
+            "--force-window=immediate",
+            f"--log-file={log_prog}",
+        ]
+        sec = _detect_secondary_monitor_name()
+        attempt_cmds = []
+        if sec:
+            attempt_cmds.append(base_prog + ["--fs", f"--fs-screen={sec}"])
+        attempt_cmds.append(base_prog + ["--fs"])
+        attempt_cmds.append(base_prog)
+
+        prog_ready = False
+        for cmd in attempt_cmds:
+            try:
+                _mpv_proc = subprocess.Popen(cmd + (shlex.split(MPV_ARGS) if MPV_ARGS else []),
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print(f"Failed to start mpv (program): {e}")
+                _mpv_proc = None
+                continue
+
+            for _ in range(50):  # up to ~5s
+                if _mpv_ipc_ready_socket(MPV_SOCKET):
+                    prog_ready = True
+                    break
+                time.sleep(0.1)
+
+            if prog_ready:
+                break
+
+            try:
+                if _mpv_proc and _mpv_proc.poll() is None:
+                    _mpv_proc.terminate()
+                    _mpv_proc.wait(timeout=0.8)
+            except Exception:
+                pass
             _mpv_proc = None
-            continue
 
-        # Wait up to 5s for the socket to appear/respond
-        for _ in range(50):
-            if _mpv_ipc_ready():
-                return True
-            time.sleep(0.1)
+        if not prog_ready:
+            print(f"mpv (program) IPC not ready; check log at {log_prog}")
 
-        # Didn’t come up; stop this attempt and try the next
-        try:
-            if _mpv_proc and _mpv_proc.poll() is None:
-                _mpv_proc.terminate()
-                _mpv_proc.wait(timeout=0.8)
-        except Exception:
-            pass
-        _mpv_proc = None
+    # Optionally start Preview instance (doesn't block main readiness)
+    if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+        if not _mpv_ipc_ready_socket(MPV_PREVIEW_SOCKET):
+            _ensure_dir_for(MPV_PREVIEW_SOCKET)
+            log_prev = "/tmp/karel_mpv_prev.log"
+            prev_cmd = [
+                mpv_bin,
+                f"--input-ipc-server={MPV_PREVIEW_SOCKET}",
+                "--idle=yes",
+                "--force-window=immediate",
+                f"--log-file={log_prev}",
+            ] + (shlex.split(MPV_PREVIEW_ARGS) if MPV_PREVIEW_ARGS else [])
 
-    print(f"mpv IPC not ready; check log at {log_path}")
-    return False
+            try:
+                subprocess.Popen(prev_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print(f"Failed to start mpv (preview): {e}")
+            else:
+                # Give it a moment to come up (don’t block too long)
+                for _ in range(30):  # up to ~3s
+                    if _mpv_ipc_ready_socket(MPV_PREVIEW_SOCKET):
+                        break
+                    time.sleep(0.1)
 
+        # Optionally preload the same video in preview (only if main was preloaded elsewhere)
+        if VIDEO_FILE and os.path.isfile(VIDEO_FILE):
+            # Only load if preview isn’t already on that file (best-effort)
+            mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["loadfile", VIDEO_FILE, "replace"]})
+            time.sleep(0.05)
+            mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["set_property", "pause", True]})
+            mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["set_property", "time-pos", 0]})
+
+    return bool(prog_ready)
 
 # PyATEMMax connection
 import PyATEMMax
@@ -342,6 +542,7 @@ class ChannelSwitcherApp:
         self.PRG = 1
         self.CUE = 1
         self.play_on_next_trigger = False
+        self.mpv_play_delay_ms = int(MPV_PLAY_DELAY_MS)  # runtime-editable
 
         self.canvas = tk.Canvas(root, width=600, height=170, bg='lightgrey')
         self.canvas.pack(padx=10, pady=10)
@@ -355,6 +556,16 @@ class ChannelSwitcherApp:
         self.arduino_status_lbl.pack(side='left', padx=(10, 0))
         self.mpv_status_lbl.pack(side='left', padx=(10, 0))
 
+        # Controls: MPV play delay (ms)
+        self.controls_frame = tk.Frame(root)
+        self.controls_frame.pack(fill='x', padx=10, pady=(0, 10))
+        tk.Label(self.controls_frame, text='Play Delay (ms):', width=16, anchor='w').pack(side='left')
+        self.delay_value_lbl = tk.Label(self.controls_frame, text=str(self.mpv_play_delay_ms), width=8, anchor='w')
+        self.delay_value_lbl.pack(side='left')
+        tk.Button(self.controls_frame, text='Set…', command=self.open_delay_prompt).pack(side='left', padx=(6, 0))
+        # Default focus to canvas for keyboard controls
+        self.root.after(0, self.canvas.focus_set)
+
         self.rects = []
         self.texts = []
         self.draw_rects()
@@ -363,6 +574,9 @@ class ChannelSwitcherApp:
         for key in ['1', '2', '3', '4', '0', 'p', 'P']:
             self.root.bind(key, self.on_key)
         self.root.bind('<space>', self.on_key)
+        # Frame stepping bindings
+        self.root.bind('<Left>', self.on_key)
+        self.root.bind('<Right>', self.on_key)
 
         self.atem_backoff = 1.0
         self.atem_backoff_max = 10.0
@@ -381,6 +595,8 @@ class ChannelSwitcherApp:
 
         self.ensure_connections()
         self.poll_serial()
+        self.start_mpv_sync()   # <<< start preview sync loop
+
 
     def draw_rects(self):
         self.canvas.delete("all")
@@ -414,7 +630,7 @@ class ChannelSwitcherApp:
         # Hint line
         self.canvas.create_text(
             300, 145,
-            text="Keys: 1..4 CUE, Space CUT, 0 clear, P play-on-cut",
+            text="Keys: 1..4 CUE, Space CUT, 0 clear, P play-on-cut, ←/→ pause+±10 frames",
             font=('Helvetica', 11)
         )
 
@@ -435,7 +651,7 @@ class ChannelSwitcherApp:
 
         # If requested, start mpv playback on this trigger (with optional delay)
         if self.play_on_next_trigger:
-            delay = max(0, int(MPV_PLAY_DELAY_MS))
+            delay = max(0, int(self.mpv_play_delay_ms))
             if delay > 0:
                 try:
                     self.root.after(delay, mpv_play)
@@ -446,7 +662,49 @@ class ChannelSwitcherApp:
                 mpv_play()
             self.play_on_next_trigger = False
 
+            # Tighten sync immediately on trigger (optional)
+            if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+                t = mpv_get(MPV_SOCKET, "time-pos", None)
+                if t is not None:
+                    mpv_set(MPV_PREVIEW_SOCKET, "time-pos", t)
+
         self.update_display()
+
+    def open_delay_prompt(self):
+        try:
+            val = simpledialog.askinteger(
+                title='Set Play Delay',
+                prompt='Enter play delay in milliseconds:',
+                initialvalue=int(self.mpv_play_delay_ms),
+                minvalue=1,
+                parent=self.root
+            )
+        except Exception:
+            val = None
+        if val is None:
+            # Cancelled
+            self.canvas.focus_set()
+            return
+        try:
+            val = int(val)
+            if val < 1:
+                # Enforce strictly positive values
+                val = 1
+        except Exception:
+            return
+        # Apply and persist
+        self.mpv_play_delay_ms = val
+        if hasattr(self, 'delay_value_lbl'):
+            self.delay_value_lbl.config(text=str(val))
+        try:
+            save_config_value("MPV_PLAY_DELAY_MS", val)
+        except Exception:
+            pass
+        try:
+            save_env_value("MPV_PLAY_DELAY_MS", str(val))
+        except Exception:
+            pass
+        self.canvas.focus_set()
 
     def on_key(self, event):
         if event.char in ['1', '2', '3', '4']:
@@ -468,7 +726,26 @@ class ChannelSwitcherApp:
             if VIDEO_FILE and not self._mpv_loaded and os.path.isfile(VIDEO_FILE):
                 self._mpv_loaded = mpv_load_and_pause(VIDEO_FILE)
             self.play_on_next_trigger = True
+        elif event.keysym in ['Left', 'Right']:
+            # Pause and step ±10 frames
+            try:
+                # Ensure paused
+                mpv_set(MPV_SOCKET, "pause", True)
+                # Step frames
+                cmd = "frame-back-step" if event.keysym == 'Left' else "frame-step"
+                for _ in range(10):
+                    mpv_send({"command": [cmd]})
+                # Sync preview position while paused
+                if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+                    mpv_set(MPV_PREVIEW_SOCKET, "pause", True)
+                    t = mpv_get(MPV_SOCKET, "time-pos", None)
+                    if t is not None:
+                        mpv_set(MPV_PREVIEW_SOCKET, "time-pos", t)
+            except Exception as e:
+                print(f"MPV frame step error: {e}")
         self.update_display()
+
+    
 
     def update_display(self):
         self.draw_rects()
@@ -503,7 +780,13 @@ class ChannelSwitcherApp:
             if ser and ser.is_open and ser.in_waiting:
                 data = ser.readline().decode('utf-8', errors='ignore').strip()
                 if data == "1":
-                    time.sleep(0.2)
+                    # Optional delay before triggering, configurable via env/config
+                    try:
+                        d = max(0, int(ARDUINO_TRIGGER_DELAY_MS))
+                    except Exception:
+                        d = 200
+                    if d:
+                        time.sleep(d / 1000.0)
                     self.trigger()
         except Exception as e:
             print(f"Serial read error: {e}")
@@ -549,6 +832,52 @@ class ChannelSwitcherApp:
         delay_ms = int(max(200, delay_s * 1000))
         self.update_status_labels()
         self.root.after(delay_ms, self.ensure_connections)
+    def start_mpv_sync(self):
+        self._sync_job = None
+        if MPV_SYNC_ENABLE:
+            self._mpv_sync_tick()
+
+    def _mpv_sync_tick(self):
+        try:
+            # Only run if program socket is alive
+            prog_pause = mpv_get(MPV_SOCKET, "pause", None)
+            if prog_pause is None:
+                # program not up; try again later
+                pass
+            else:
+                # Mirror file path
+                prog_path = mpv_get(MPV_SOCKET, "path", "")
+                if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+                    prev_path = mpv_get(MPV_PREVIEW_SOCKET, "path", "")
+                    if prog_path and prog_path != prev_path:
+                        mpv_send_to(MPV_PREVIEW_SOCKET, {"command": ["loadfile", prog_path, "replace"]})
+                        # ensure muted + paused state mirrors right away
+                        mpv_set(MPV_PREVIEW_SOCKET, "pause", prog_pause)
+                        mpv_set(MPV_PREVIEW_SOCKET, "mute", True)
+
+                    # Mirror pause + speed
+                    prev_pause = mpv_get(MPV_PREVIEW_SOCKET, "pause", None)
+                    if prev_pause is not None and prev_pause != prog_pause:
+                        mpv_set(MPV_PREVIEW_SOCKET, "pause", prog_pause)
+
+                    prog_speed = mpv_get(MPV_SOCKET, "speed", 1.0)
+                    prev_speed = mpv_get(MPV_PREVIEW_SOCKET, "speed", 1.0)
+                    if abs(float(prev_speed) - float(prog_speed)) > 1e-3:
+                        mpv_set(MPV_PREVIEW_SOCKET, "speed", prog_speed)
+
+                    # Time sync (nudge preview when drift exceeds threshold)
+                    prog_t = mpv_get(MPV_SOCKET, "time-pos", None)
+                    prev_t = mpv_get(MPV_PREVIEW_SOCKET, "time-pos", None)
+                    if prog_t is not None and prev_t is not None:
+                        try:
+                            drift = float(prog_t) - float(prev_t)
+                            if abs(drift) > MPV_SYNC_DRIFT_SEC:
+                                mpv_set(MPV_PREVIEW_SOCKET, "time-pos", prog_t)
+                        except Exception:
+                            pass
+        finally:
+            # schedule next tick
+            self._sync_job = self.root.after(MPV_SYNC_INTERVAL_MS, self._mpv_sync_tick)
 
 
 def main():
