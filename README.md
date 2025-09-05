@@ -60,12 +60,14 @@ MPV Integration
   - `MPV_PATH=mpv` (path to mpv binary, if not on PATH)
   - `MPV_ARGS="--fs-screen=HDMI-1"` (extra flags appended after defaults; use to force a specific screen)
   - `MPV_PLAY_DELAY_MS=0` (delay between CUT trigger and starting playback; default 0)
+  - `MPV_STEP_MS=100` (Left/Right arrow seek step in milliseconds; default 100)
 - Run from source:
   - `make run-mpv` (or `python3 run_mpv.py`)
 - Notes:
   - `MPV_ARGS` are appended after the defaults (`--fs` and optional `--fs-screen=<auto>`), so your values take precedence on duplicates.
   - Secondary‑display detection uses `xrandr --listmonitors` on Linux; if `xrandr` is unavailable or only one display is connected, fullscreen opens on the primary.
   - `MPV_PLAY_DELAY_MS` only affects the mpv start (when armed with `P`) after a CUT; it does not delay the ATEM cut itself.
+  - Left/Right arrows pause and seek by `±MPV_STEP_MS` and immediately sync the preview window to the same timestamp.
 
 Troubleshooting
 - Serial permissions (Linux): add your user to `dialout` or adjust udev.

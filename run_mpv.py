@@ -206,6 +206,12 @@ try:
 except Exception:
     MPV_PLAY_DELAY_MS = 0
 
+# Seek step for Left/Right keys (milliseconds)
+try:
+    MPV_STEP_MS = int(os.getenv("MPV_STEP_MS", str(_CONF.get("MPV_STEP_MS", "100"))))
+except Exception:
+    MPV_STEP_MS = 100
+
 
 # Extra MPV (preview) integration
 def _as_bool(x: str) -> bool:
@@ -543,6 +549,12 @@ class ChannelSwitcherApp:
         self.CUE = 1
         self.play_on_next_trigger = False
         self.mpv_play_delay_ms = int(MPV_PLAY_DELAY_MS)  # runtime-editable
+        try:
+            self.mpv_seek_step_ms = int(MPV_STEP_MS)
+            if self.mpv_seek_step_ms < 1:
+                self.mpv_seek_step_ms = 1
+        except Exception:
+            self.mpv_seek_step_ms = 100
 
         self.canvas = tk.Canvas(root, width=600, height=170, bg='lightgrey')
         self.canvas.pack(padx=10, pady=10)
@@ -627,10 +639,10 @@ class ChannelSwitcherApp:
             self.texts.append(text_id)
             start_x += rect_w + gap
 
-        # Hint line
+        # Hint line (reflect current seek step)
         self.canvas.create_text(
             300, 145,
-            text="Keys: 1..4 CUE, Space CUT, 0 clear, P play-on-cut, ←/→ pause+±10 frames",
+            text=f"Keys: 1..4 CUE, Space CUT, 0 clear, P play-on-cut, ←/→ pause+±{self.mpv_seek_step_ms}ms",
             font=('Helvetica', 11)
         )
 
@@ -727,22 +739,37 @@ class ChannelSwitcherApp:
                 self._mpv_loaded = mpv_load_and_pause(VIDEO_FILE)
             self.play_on_next_trigger = True
         elif event.keysym in ['Left', 'Right']:
-            # Pause and step ±10 frames
+            # Pause and seek ±configured ms with immediate preview sync
             try:
                 # Ensure paused
                 mpv_set(MPV_SOCKET, "pause", True)
-                # Step frames
-                cmd = "frame-back-step" if event.keysym == 'Left' else "frame-step"
-                for _ in range(10):
-                    mpv_send({"command": [cmd]})
-                # Sync preview position while paused
-                if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
-                    mpv_set(MPV_PREVIEW_SOCKET, "pause", True)
-                    t = mpv_get(MPV_SOCKET, "time-pos", None)
-                    if t is not None:
-                        mpv_set(MPV_PREVIEW_SOCKET, "time-pos", t)
+                # Get current time, adjust by 0.1s
+                t = mpv_get(MPV_SOCKET, "time-pos", None)
+                if t is not None:
+                    try:
+                        t = float(t)
+                    except Exception:
+                        t = None
+                if t is not None:
+                    delta = max(0.001, float(self.mpv_seek_step_ms) / 1000.0)
+                    # Clamp to [0, duration]
+                    dur = mpv_get(MPV_SOCKET, "duration", None)
+                    try:
+                        dur = float(dur) if dur is not None else None
+                    except Exception:
+                        dur = None
+                    new_t = (t - delta) if event.keysym == 'Left' else (t + delta)
+                    if new_t < 0.0:
+                        new_t = 0.0
+                    if dur is not None and new_t > dur:
+                        new_t = dur
+                    mpv_set(MPV_SOCKET, "time-pos", new_t)
+                    # Sync preview position while paused
+                    if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+                        mpv_set(MPV_PREVIEW_SOCKET, "pause", True)
+                        mpv_set(MPV_PREVIEW_SOCKET, "time-pos", new_t)
             except Exception as e:
-                print(f"MPV frame step error: {e}")
+                print(f"MPV seek error: {e}")
         self.update_display()
 
     
