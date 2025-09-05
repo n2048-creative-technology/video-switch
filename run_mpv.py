@@ -168,22 +168,46 @@ def _mpv_ipc_ready():
 
 _mpv_proc = None
 
-
 def launch_mpv_if_needed():
+    """Ensure mpv is running with IPC. Start it and wait briefly if needed."""
     global _mpv_proc
+
+    # Already up?
     if _mpv_ipc_ready():
         return True
-    # Find mpv binary
-    mpv_bin = MPV_PATH if os.path.isabs(MPV_PATH) or os.path.sep in MPV_PATH else (shutil.which(MPV_PATH) or MPV_PATH)
-    if not shutil.which(mpv_bin) and not os.path.isabs(mpv_bin):
-        print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
+
+    # Make sure socket dir exists (e.g., /tmp)
+    try:
+        sock_dir = os.path.dirname(MPV_SOCKET) or "."
+        os.makedirs(sock_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Cannot ensure socket dir for {MPV_SOCKET}: {e}")
         return False
-    # Detect a secondary monitor for fullscreen if possible (X11).
+
+    # Resolve mpv binary
+    mpv_bin = MPV_PATH
+    if not (os.path.isabs(mpv_bin) or os.path.sep in mpv_bin):
+        found = shutil.which(mpv_bin)
+        if not found:
+            print(f"mpv not found on PATH (MPV_PATH={MPV_PATH}).")
+            return False
+        mpv_bin = found
+
+    # Build base command + log
+    log_path = "/tmp/karel_mpv.log"
+    base_cmd = [
+        mpv_bin,
+        f"--input-ipc-server={MPV_SOCKET}",
+        "--idle=yes",
+        "--force-window=immediate",
+        f"--log-file={log_path}",
+    ]
+    extra = shlex.split(MPV_ARGS) if MPV_ARGS else []
+
+    # Try to derive a secondary screen; this sometimes breaks on Wayland
     def _detect_secondary_monitor_name():
         try:
-            if platform.system() != "Linux":
-                return None
-            if not shutil.which("xrandr"):
+            if platform.system() != "Linux" or not shutil.which("xrandr"):
                 return None
             out = subprocess.check_output(["xrandr", "--listmonitors"], text=True, stderr=subprocess.DEVNULL)
             primary = None
@@ -192,40 +216,53 @@ def launch_mpv_if_needed():
                 line = line.strip()
                 if not line or line.startswith("Monitors:"):
                     continue
-                # Example line: "0: +*eDP-1 1920/344x1080/194+0+0  eDP-1"
                 tok = (line.split()[1] if len(line.split()) > 1 else "")
                 name = tok.lstrip("+*")
                 if "*" in tok:
                     primary = name
                 names.append(name)
             if len(names) >= 2:
-                # Prefer any non-primary output
                 for n in names:
                     if n != primary:
                         return n
-                return names[1]
         except Exception:
             return None
         return None
 
-    # Build command
-    cmd = [mpv_bin, f"--input-ipc-server={MPV_SOCKET}", "--idle=yes", "--force-window=yes", "--fs"]
     sec = _detect_secondary_monitor_name()
+    # First attempt: with fullscreen and (if known) fs-screen
+    attempt_cmds = []
     if sec:
-        cmd.append(f"--fs-screen={sec}")
-    extra = shlex.split(MPV_ARGS) if MPV_ARGS else []
-    cmd.extend(extra)
-    try:
-        _mpv_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        print(f"Failed to start mpv: {e}")
-        return False
-    # Wait up to ~5s for IPC to be ready
-    for _ in range(50):
-        if _mpv_ipc_ready():
-            return True
-        time.sleep(0.1)
-    print("mpv IPC not ready after launch.")
+        attempt_cmds.append(base_cmd + ["--fs", f"--fs-screen={sec}"] + extra)
+    # Fallbacks: plain fullscreen, then windowed
+    attempt_cmds.append(base_cmd + ["--fs"] + extra)
+    attempt_cmds.append(base_cmd + extra)
+
+    # Try each variant until IPC comes up
+    for cmd in attempt_cmds:
+        try:
+            _mpv_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"Failed to start mpv ({' '.join(cmd[:2])} ...): {e}")
+            _mpv_proc = None
+            continue
+
+        # Wait up to 5s for the socket to appear/respond
+        for _ in range(50):
+            if _mpv_ipc_ready():
+                return True
+            time.sleep(0.1)
+
+        # Didn’t come up; stop this attempt and try the next
+        try:
+            if _mpv_proc and _mpv_proc.poll() is None:
+                _mpv_proc.terminate()
+                _mpv_proc.wait(timeout=0.8)
+        except Exception:
+            pass
+        _mpv_proc = None
+
+    print(f"mpv IPC not ready; check log at {log_path}")
     return False
 
 
