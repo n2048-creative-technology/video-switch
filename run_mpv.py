@@ -212,6 +212,14 @@ try:
 except Exception:
     MPV_STEP_MS = 100
 
+# Number of steps before wrapping STEP counter
+try:
+    NUM_STEPS = int(os.getenv("NUM_STEPS", str(_CONF.get("NUM_STEPS", "14"))))
+    if NUM_STEPS < 1:
+        NUM_STEPS = 14
+except Exception:
+    NUM_STEPS = 14
+
 
 # Extra MPV (preview) integration
 def _as_bool(x: str) -> bool:
@@ -556,7 +564,7 @@ class ChannelSwitcherApp:
         except Exception:
             self.mpv_seek_step_ms = 100
 
-        self.canvas = tk.Canvas(root, width=600, height=170, bg='lightgrey')
+        self.canvas = tk.Canvas(root, width=740, height=170, bg='lightgrey')
         self.canvas.pack(padx=10, pady=10)
 
         self.status_frame = tk.Frame(root)
@@ -575,6 +583,30 @@ class ChannelSwitcherApp:
         self.delay_value_lbl = tk.Label(self.controls_frame, text=str(self.mpv_play_delay_ms), width=8, anchor='w')
         self.delay_value_lbl.pack(side='left')
         tk.Button(self.controls_frame, text='Set…', command=self.open_delay_prompt).pack(side='left', padx=(6, 0))
+
+        # Counters: STEP and LOOP with Reset
+        # Initialize counters
+        self.step_counter = 1
+        self.loop_counter = 1
+        try:
+            self.num_steps = int(NUM_STEPS)
+            if self.num_steps < 1:
+                self.num_steps = 14
+        except Exception:
+            self.num_steps = 14
+
+        # Spacer
+        tk.Label(self.controls_frame, text='   ').pack(side='left')
+        # STEP label
+        tk.Label(self.controls_frame, text='Step:', width=6, anchor='w').pack(side='left')
+        self.step_value_lbl = tk.Label(self.controls_frame, text=str(self.step_counter), width=4, anchor='w')
+        self.step_value_lbl.pack(side='left')
+        # LOOP label
+        tk.Label(self.controls_frame, text='Loop:', width=6, anchor='w').pack(side='left')
+        self.loop_value_lbl = tk.Label(self.controls_frame, text=str(self.loop_counter), width=4, anchor='w')
+        self.loop_value_lbl.pack(side='left')
+        # Reset button
+        tk.Button(self.controls_frame, text='Reset', command=self.reset_counters).pack(side='left', padx=(8, 0))
         # Default focus to canvas for keyboard controls
         self.root.after(0, self.canvas.focus_set)
 
@@ -583,7 +615,7 @@ class ChannelSwitcherApp:
         self.draw_rects()
         self.update_status_labels()
 
-        for key in ['1', '2', '3', '4', '0', 'p', 'P']:
+        for key in ['1', '2', '3', '4', '0', 'p', 'P', 'l', 'L']:
             self.root.bind(key, self.on_key)
         self.root.bind('<space>', self.on_key)
         # Frame stepping bindings
@@ -608,6 +640,21 @@ class ChannelSwitcherApp:
         self.ensure_connections()
         self.poll_serial()
         self.start_mpv_sync()   # <<< start preview sync loop
+
+        # Glossary/help at bottom
+        self.glossary_frame = tk.Frame(root)
+        self.glossary_frame.pack(fill='x', padx=10, pady=(0, 10))
+        glossary_text = (
+            "Keys:\n"
+            "  1..4: set CUE (preview input)\n"
+            "  0: set CUE to BLK (blackout)\n"
+            "  Space: CUT (Program <- CUE)\n"
+            "  P: toggle play on next trigger\n"
+            "  L: pause and reload video to start\n"
+            f"  ←/→: pause and step ±{self.mpv_seek_step_ms}ms"
+        )
+        self.glossary_lbl = tk.Label(self.glossary_frame, text=glossary_text, justify='left', anchor='w')
+        self.glossary_lbl.pack(fill='x')
 
 
     def draw_rects(self):
@@ -639,10 +686,35 @@ class ChannelSwitcherApp:
             self.texts.append(text_id)
             start_x += rect_w + gap
 
+        # Add blackout (0) indicator tile: small and black background
+        i = 0
+        fill = 'red' if i == self.PRG else 'black'
+        width = 3
+        outline_color = 'black'
+        if i == self.CUE and self.CUE != self.PRG:
+            outline_color = 'green'
+            width = 7
+        small_w, small_h = 70, 60
+        rect_id = self.canvas.create_rectangle(
+            start_x, start_y + (rect_h - small_h) / 2,
+            start_x + small_w, start_y + (rect_h - small_h) / 2 + small_h,
+            fill=fill, outline=outline_color, width=width
+        )
+        text = "BLK"
+        if self.play_on_next_trigger and i == self.CUE:
+            text += " ▶"
+        text_id = self.canvas.create_text(
+            start_x + small_w / 2,
+            start_y + rect_h / 2,
+            text=text, font=('Helvetica', 16, 'bold'), fill='white' if fill == 'black' else 'black'
+        )
+        self.rects.append(rect_id)
+        self.texts.append(text_id)
+
         # Hint line (reflect current seek step)
         self.canvas.create_text(
-            300, 145,
-            text=f"Keys: 1..4 CUE, Space CUT, 0 clear, P play-on-cut, ←/→ pause+±{self.mpv_seek_step_ms}ms",
+            370, 145,
+            text=f"Keys: 1..4 CUE, Space CUT, 0 BLK, P play-on-cut, L load-to-start, ←/→ pause+±{self.mpv_seek_step_ms}ms",
             font=('Helvetica', 11)
         )
 
@@ -650,8 +722,8 @@ class ChannelSwitcherApp:
         self.PRG = self.CUE
         try:
             if _atem_is_connected():
-                time.sleep(0.05)
-                switcher.execCutME(0)
+                time.sleep(0.01)
+                switcher.execCutME(0)                
                 switcher.setPreviewInputVideoSource(0, self.CUE)
                 switcher.setProgramInputVideoSource(0, self.PRG)
                 time.sleep(0.2)
@@ -660,6 +732,23 @@ class ChannelSwitcherApp:
         except Exception as e:
             print(f"ATEM command error: {e}")
             self.atem_backoff = 1.0
+
+        # Update counters on each trigger
+        try:
+            if getattr(self, 'num_steps', None) is None:
+                self.num_steps = 14
+            if self.step_counter < self.num_steps:
+                self.step_counter += 1
+            else:
+                self.step_counter = 1
+                self.loop_counter += 1
+            # Reflect in UI labels if present
+            if hasattr(self, 'step_value_lbl'):
+                self.step_value_lbl.config(text=str(self.step_counter))
+            if hasattr(self, 'loop_value_lbl'):
+                self.loop_value_lbl.config(text=str(self.loop_counter))
+        except Exception:
+            pass
 
         # If requested, start mpv playback on this trigger (with optional delay)
         if self.play_on_next_trigger:
@@ -681,6 +770,15 @@ class ChannelSwitcherApp:
                     mpv_set(MPV_PREVIEW_SOCKET, "time-pos", t)
 
         self.update_display()
+
+    def reset_counters(self):
+        self.step_counter = 1
+        self.loop_counter = 1
+        try:
+            self.step_value_lbl.config(text=str(self.step_counter))
+            self.loop_value_lbl.config(text=str(self.loop_counter))
+        except Exception:
+            pass
 
     def open_delay_prompt(self):
         try:
@@ -734,10 +832,30 @@ class ChannelSwitcherApp:
         elif event.keysym == 'space':
             self.trigger()
         elif event.char in ['p', 'P']:
-            # Arm playback on next trigger; try to preload if not already
-            if VIDEO_FILE and not self._mpv_loaded and os.path.isfile(VIDEO_FILE):
-                self._mpv_loaded = mpv_load_and_pause(VIDEO_FILE)
-            self.play_on_next_trigger = True
+            # Toggle play-on-next-trigger. When enabling, try to preload once.
+            if self.play_on_next_trigger:
+                # Second press before trigger cancels the arm
+                self.play_on_next_trigger = False
+            else:
+                if VIDEO_FILE and not self._mpv_loaded and os.path.isfile(VIDEO_FILE):
+                    self._mpv_loaded = mpv_load_and_pause(VIDEO_FILE)
+                self.play_on_next_trigger = True
+        elif event.char in ['l', 'L']:
+            # Pause and reload video to start (program and preview)
+            try:
+                if VIDEO_FILE and os.path.isfile(VIDEO_FILE):
+                    ok = mpv_load_and_pause(VIDEO_FILE)
+                    if ok:
+                        self._mpv_loaded = True
+                else:
+                    # Fallback: just pause and seek to 0 on current file
+                    mpv_set(MPV_SOCKET, "pause", True)
+                    mpv_set(MPV_SOCKET, "time-pos", 0)
+                    if MPV_PREVIEW_ENABLE and MPV_PREVIEW_SOCKET:
+                        mpv_set(MPV_PREVIEW_SOCKET, "pause", True)
+                        mpv_set(MPV_PREVIEW_SOCKET, "time-pos", 0)
+            except Exception as e:
+                print(f"MPV reload error: {e}")
         elif event.keysym in ['Left', 'Right']:
             # Pause and seek ±configured ms with immediate preview sync
             try:
