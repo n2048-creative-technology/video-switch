@@ -552,7 +552,7 @@ def _serial_try_connect():
 class ChannelSwitcherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Channel Switcher + MPV")
+        self.root.title("Performance: Contact")
 
         self.PRG = 1
         self.CUE = 1
