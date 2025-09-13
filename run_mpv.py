@@ -20,6 +20,7 @@ Notes:
 
 import tkinter as tk
 import tkinter.simpledialog as simpledialog
+import tkinter.filedialog as filedialog
 import time
 import os
 import sys
@@ -583,8 +584,11 @@ class ChannelSwitcherApp:
         self.delay_value_lbl = tk.Label(self.controls_frame, text=str(self.mpv_play_delay_ms), width=8, anchor='w')
         self.delay_value_lbl.pack(side='left')
         tk.Button(self.controls_frame, text='Set…', command=self.open_delay_prompt).pack(side='left', padx=(6, 0))
-
-        # Counters: STEP and LOOP with Reset
+        # Load video button
+        tk.Label(self.controls_frame, text='   ').pack(side='left')
+        tk.Button(self.controls_frame, text='Load Video…', command=self.load_video_dialog).pack(side='left')
+        
+        # Counters: LOOP and STEP (stacked vertically) with Reset
         # Initialize counters
         self.step_counter = 1
         self.loop_counter = 1
@@ -595,18 +599,25 @@ class ChannelSwitcherApp:
         except Exception:
             self.num_steps = 14
 
-        # Spacer
-        tk.Label(self.controls_frame, text='   ').pack(side='left')
-        # STEP label
-        tk.Label(self.controls_frame, text='Step:', width=6, anchor='w').pack(side='left')
-        self.step_value_lbl = tk.Label(self.controls_frame, text=str(self.step_counter), width=4, anchor='w')
-        self.step_value_lbl.pack(side='left')
-        # LOOP label
-        tk.Label(self.controls_frame, text='Loop:', width=6, anchor='w').pack(side='left')
-        self.loop_value_lbl = tk.Label(self.controls_frame, text=str(self.loop_counter), width=4, anchor='w')
+        self.counters_frame = tk.Frame(root)
+        self.counters_frame.pack(fill='x', padx=10, pady=(0, 10))
+
+        # Loop row (first)
+        self.loop_row = tk.Frame(self.counters_frame)
+        self.loop_row.pack(fill='x')
+        tk.Label(self.loop_row, text='Loop:', width=6, anchor='w').pack(side='left')
+        self.loop_value_lbl = tk.Label(self.loop_row, text=str(self.loop_counter), width=6, anchor='w')
         self.loop_value_lbl.pack(side='left')
-        # Reset button
-        tk.Button(self.controls_frame, text='Reset', command=self.reset_counters).pack(side='left', padx=(8, 0))
+        tk.Button(self.loop_row, text='Reset', command=self.reset_counters).pack(side='left', padx=(8, 0))
+
+        # Step row (second)
+        self.step_row = tk.Frame(self.counters_frame)
+        self.step_row.pack(fill='x', pady=(4, 0))
+        tk.Label(self.step_row, text='Step:', width=6, anchor='w').pack(side='left')
+        self.step_value_lbl = tk.Label(self.step_row, text=str(self.step_counter), width=6, anchor='w')
+        self.step_value_lbl.pack(side='left')
+        tk.Button(self.step_row, text='−', width=2, command=self.decrement_step).pack(side='left', padx=(2, 0))
+        tk.Button(self.step_row, text='+', width=2, command=self.increment_step).pack(side='left', padx=(2, 6))
         # Default focus to canvas for keyboard controls
         self.root.after(0, self.canvas.focus_set)
 
@@ -615,7 +626,7 @@ class ChannelSwitcherApp:
         self.draw_rects()
         self.update_status_labels()
 
-        for key in ['1', '2', '3', '4', '0', 'p', 'P', 'l', 'L']:
+        for key in ['1', '2', '0', 'p', 'P', 'l', 'L']:
             self.root.bind(key, self.on_key)
         self.root.bind('<space>', self.on_key)
         # Frame stepping bindings
@@ -646,7 +657,7 @@ class ChannelSwitcherApp:
         self.glossary_frame.pack(fill='x', padx=10, pady=(0, 10))
         glossary_text = (
             "Keys:\n"
-            "  1..4: set CUE (preview input)\n"
+            "  1..2: set CUE (preview input)\n"
             "  0: set CUE to BLK (blackout)\n"
             "  Space: CUT (Program <- CUE)\n"
             "  P: toggle play on next trigger\n"
@@ -660,9 +671,9 @@ class ChannelSwitcherApp:
     def draw_rects(self):
         self.canvas.delete("all")
         start_x, start_y = 20, 20
-        rect_w, rect_h, gap = 120, 100, 20
+        rect_w, rect_h, gap = 240, 100, 20
 
-        for i in range(1, 5):
+        for i in range(1, 3):
             fill = 'red' if i == self.PRG else 'white'
             width = 3
             outline_color = 'black'
@@ -674,13 +685,16 @@ class ChannelSwitcherApp:
                 start_x + rect_w, start_y + rect_h,
                 fill=fill, outline=outline_color, width=width
             )
-            text = str(i)
+            if i == 1:
+                text = "LIVE"
+            elif i == 2:
+                text = "RECORDED"
             if self.play_on_next_trigger and i == self.CUE:
                 text += " ▶"
             text_id = self.canvas.create_text(
                 start_x + rect_w / 2,
                 start_y + rect_h / 2,
-                text=text, font=('Helvetica', 32, 'bold')
+                text=text, font=('Helvetica', 20, 'bold')
             )
             self.rects.append(rect_id)
             self.texts.append(text_id)
@@ -714,7 +728,7 @@ class ChannelSwitcherApp:
         # Hint line (reflect current seek step)
         self.canvas.create_text(
             370, 145,
-            text=f"Keys: 1..4 CUE, Space CUT, 0 BLK, P play-on-cut, L load-to-start, ←/→ pause+±{self.mpv_seek_step_ms}ms",
+            text=f"Keys: 1..2 CUE, Space CUT, 0 BLK, P play-on-cut, L load-to-start, ←/→ pause+±{self.mpv_seek_step_ms}ms",
             font=('Helvetica', 11)
         )
 
@@ -780,6 +794,36 @@ class ChannelSwitcherApp:
         except Exception:
             pass
 
+    def increment_step(self):
+        try:
+            if self.step_counter < self.num_steps:
+                self.step_counter += 1
+            else:
+                self.step_counter = 1
+            if hasattr(self, 'step_value_lbl'):
+                self.step_value_lbl.config(text=str(self.step_counter))
+        finally:
+            # Keep keyboard focus on canvas for hotkeys
+            try:
+                self.canvas.focus_set()
+            except Exception:
+                pass
+
+    def decrement_step(self):
+        try:
+            if self.step_counter > 1:
+                self.step_counter -= 1
+            else:
+                self.step_counter = self.num_steps if getattr(self, 'num_steps', 0) else 1
+            if hasattr(self, 'step_value_lbl'):
+                self.step_value_lbl.config(text=str(self.step_counter))
+        finally:
+            # Keep keyboard focus on canvas for hotkeys
+            try:
+                self.canvas.focus_set()
+            except Exception:
+                pass
+
     def open_delay_prompt(self):
         try:
             val = simpledialog.askinteger(
@@ -816,8 +860,75 @@ class ChannelSwitcherApp:
             pass
         self.canvas.focus_set()
 
+    def load_video_dialog(self):
+        global VIDEO_FILE
+        try:
+            # Prefer the dir of current VIDEO_FILE, else last saved, else cwd
+            initial_dir = None
+            try:
+                if VIDEO_FILE and os.path.isfile(VIDEO_FILE):
+                    initial_dir = os.path.dirname(os.path.abspath(VIDEO_FILE))
+            except Exception:
+                initial_dir = None
+            if not initial_dir:
+                try:
+                    last_conf = load_config() or {}
+                    cand = last_conf.get('LAST_VIDEO_DIR', '')
+                    if cand and os.path.isdir(cand):
+                        initial_dir = cand
+                except Exception:
+                    initial_dir = None
+            if not initial_dir:
+                initial_dir = os.getcwd()
+
+            path = filedialog.askopenfilename(
+                title='Select media file',
+                initialdir=initial_dir,
+                filetypes=[
+                    ('Media files', '*.mp4 *.mov *.mkv *.avi *.webm *.mp3 *.wav *.m4a'),
+                    ('All files', '*.*'),
+                ],
+                parent=self.root,
+            )
+        except Exception:
+            path = None
+
+        if not path:
+            try:
+                self.canvas.focus_set()
+            except Exception:
+                pass
+            return
+
+        if not os.path.isfile(path):
+            return
+
+        # Persist selection and load into MPV
+        try:
+            save_config_value('VIDEO_FILE', path)
+            save_env_value('VIDEO_FILE', path)
+            save_config_value('LAST_VIDEO_DIR', os.path.dirname(path))
+        except Exception:
+            pass
+
+        try:
+            VIDEO_FILE = path
+        except Exception:
+            pass
+
+        try:
+            ok = mpv_load_and_pause(path)
+            self._mpv_loaded = bool(ok)
+        except Exception as e:
+            print(f'Failed to load video: {e}')
+        finally:
+            try:
+                self.canvas.focus_set()
+            except Exception:
+                pass
+
     def on_key(self, event):
-        if event.char in ['1', '2', '3', '4']:
+        if event.char in ['1', '2']:
             self.CUE = int(event.char)
             try:
                 if _atem_is_connected():
